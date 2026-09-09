@@ -1,0 +1,25 @@
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+frontend/dist/
+
+# Uploaded files (local dev storage)
+backend/uploaded_files/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
