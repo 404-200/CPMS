@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import ManualEntry from './pages/ManualEntry'
 import MonthlyResults from './pages/MonthlyResults'
+import ResetPassword from './pages/ResetPassword'
 import UploadScores from './pages/UploadScores'
 
 function ProtectedLayout({ children }) {
@@ -36,6 +37,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/"
         element={

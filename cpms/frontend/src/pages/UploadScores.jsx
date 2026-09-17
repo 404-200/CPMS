@@ -38,7 +38,7 @@ export default function UploadScores() {
   }
 
   return (
-    <div>
+    <div className="page-narrow">
       <div className="page-header">
         <div>
           <h1 className="page-title">Upload Score Sheet</h1>

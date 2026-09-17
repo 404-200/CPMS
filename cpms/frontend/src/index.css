@@ -93,6 +93,11 @@ a {
   overflow-y: auto;
 }
 
+.page-narrow { 
+  max-width: 900px; 
+  margin-left: auto; 
+  margin-right: auto; }
+
 .page-header {
   display: flex;
   align-items: flex-end;

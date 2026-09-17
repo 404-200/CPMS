@@ -14,9 +14,9 @@ const EMPTY_SCORES = {
 }
 
 export default function ManualEntry() {
-  const { streams, currentStreamId, selectStream } = useStreams()
+  const { streams } = useStreams()
 
-  const [streamId, setStreamId] = useState(currentStreamId)
+  const [streamId, setStreamId] = useState('')
   const [candidates, setCandidates] = useState([])
   const [candidateId, setCandidateId] = useState('')
 
@@ -35,8 +35,8 @@ export default function ManualEntry() {
   const [result, setResult] = useState(null)
 
   useEffect(() => {
-    setStreamId(currentStreamId)
-  }, [currentStreamId])
+     listPeriods('BIWEEKLY').then((res) => setPeriods(res.data))
+   }, [])
 
   useEffect(() => {
     listPeriods('BIWEEKLY').then((res) => setPeriods(res.data))
@@ -128,7 +128,7 @@ export default function ManualEntry() {
   }
 
   return (
-    <div>
+    <div className="page-narrow">
       <div className="page-header">
         <div>
           <h1 className="page-title">Manual Score Entry</h1>
@@ -139,19 +139,16 @@ export default function ManualEntry() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: 720 }}>
+      <form onSubmit={handleSubmit} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         <div className="form-grid">
           <label className="field">
             Stream
             <select
               className="input"
               value={streamId}
-              onChange={(e) => {
-                setStreamId(e.target.value)
-                selectStream(e.target.value)
-              }}
-              required
-            >
+              onChange={(e) => setStreamId(e.target.value)}
+               required
+             >
               <option value="">Select a stream…</option>
               {streams.map((s) => (
                 <option key={s.id} value={s.id}>
