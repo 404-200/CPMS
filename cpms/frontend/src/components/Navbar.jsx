@@ -1,5 +1,4 @@
 import { useAuth } from '../context/AuthContext'
-import StreamSwitcher from './StreamSwitcher'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
@@ -12,7 +11,6 @@ export default function Navbar() {
       </div>
       {user && (
         <div className="topbar-right">
-          <StreamSwitcher />
           <div className="topbar-user">
             <strong>{user.full_name}</strong>
             {user.role}

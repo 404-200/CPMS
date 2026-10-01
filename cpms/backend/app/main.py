@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine
-from app.routers import auth, candidates, dashboard, periods, results, scores, streams, uploads
+from app.routers import auth, candidates, cohorts, dashboard, periods, results, scores, streams, uploads
 
 app = FastAPI(
     title="Candidate Performance Management System",
@@ -50,6 +50,7 @@ def health_check():
 
 app.include_router(auth.router)
 app.include_router(streams.router)
+app.include_router(cohorts.router)
 app.include_router(candidates.router)
 app.include_router(periods.router)
 app.include_router(uploads.router)

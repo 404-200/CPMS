@@ -7,13 +7,15 @@ class CandidateCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr | None = None
-    stream_id: int
+    cohort_id: int
+    stream_id: int | None = None
 
 
 class CandidateUpdate(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     email: EmailStr | None = None
+    cohort_id: int | None = None
     stream_id: int | None = None
     active: bool | None = None
 
@@ -24,7 +26,9 @@ class CandidateOut(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr | None
-    stream_id: int
+    cohort_id: int | None
+    cohort_name: str | None = None
+    stream_id: int | None
     stream_name: str | None = None
     active: bool
     period_id: int | None = None
@@ -56,3 +60,4 @@ class CandidateImportSummary(BaseModel):
     rows_created: int
     created: list[CandidateOut]
     errors: list[CandidateImportRowError]
+

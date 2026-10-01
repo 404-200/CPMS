@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_roles
 from app.models.candidate import Candidate
+from app.models.cohort import Cohort
 from app.models.result import CalculatedResult
 from app.models.score import CandidateScore
 from app.models.scoring_period import ScoringPeriod
@@ -56,6 +57,8 @@ def _to_out(
         first_name=candidate.first_name,
         last_name=candidate.last_name,
         email=candidate.email,
+        cohort_id=candidate.cohort_id,
+        cohort_name=candidate.cohort.name if candidate.cohort else None,
         stream_id=candidate.stream_id,
         stream_name=candidate.stream.name if candidate.stream else None,
         active=candidate.active,
@@ -78,13 +81,16 @@ def _to_out(
 
 @router.get("", response_model=list[CandidateOut])
 def list_candidates(
+    cohort_id: int | None = None,
     stream_id: int | None = None,
     active_only: bool = False,
     period_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    query = db.query(Candidate).options(joinedload(Candidate.stream))
+    query = db.query(Candidate).options(joinedload(Candidate.stream), joinedload(Candidate.cohort))
+    if cohort_id is not None:
+        query = query.filter(Candidate.cohort_id == cohort_id)
     if stream_id is not None:
         query = query.filter(Candidate.stream_id == stream_id)
     if active_only:
@@ -117,8 +123,11 @@ def create_candidate(
     db: Session = Depends(get_db),
     _=Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER)),
 ):
-    stream = db.get(Stream, payload.stream_id)
-    if stream is None:
+    cohort = db.get(Cohort, payload.cohort_id)
+    if cohort is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cohort_id")
+
+    if payload.stream_id is not None and db.get(Stream, payload.stream_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid stream_id")
 
     candidate = Candidate(
@@ -126,6 +135,7 @@ def create_candidate(
         first_name=payload.first_name,
         last_name=payload.last_name,
         email=payload.email,
+        cohort_id=payload.cohort_id,
         stream_id=payload.stream_id,
     )
     db.add(candidate)
@@ -235,5 +245,27 @@ def delete_candidate(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
     candidate.active = False
+    db.commit()
+    return None
+
+@router.delete("/{candidate_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+def permanently_delete_candidate(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER)),
+):
+    """
+    Permanently removes a candidate and everything recorded against them
+    (their scores and calculated results). This cannot be undone.
+    Use the normal update endpoint to deactivate someone instead.
+    """
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+    # Child rows first, otherwise the database refuses to delete the candidate.
+    db.query(CalculatedResult).filter(CalculatedResult.candidate_id == candidate_id).delete()
+    db.query(CandidateScore).filter(CandidateScore.candidate_id == candidate_id).delete()
+    db.delete(candidate)
     db.commit()
     return None
