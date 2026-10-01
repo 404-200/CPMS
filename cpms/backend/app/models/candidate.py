@@ -16,13 +16,15 @@ class Candidate(Base):
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id"), nullable=False)
+    cohort_id: Mapped[int | None] = mapped_column(ForeignKey("cohorts.id"), nullable=True)
+    stream_id: Mapped[int | None] = mapped_column(ForeignKey("streams.id"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
+    cohort: Mapped["Cohort"] = relationship(back_populates="candidates")
     stream: Mapped["Stream"] = relationship(back_populates="candidates")
     scores: Mapped[list["CandidateScore"]] = relationship(back_populates="candidate")
 
