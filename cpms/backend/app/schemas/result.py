@@ -5,7 +5,7 @@ class CandidateResultOut(BaseModel):
     candidate_id: int
     candidate_code: str
     candidate_name: str
-    stream_id: int
+    stream_id: int | None
     stream_name: str
     tdc_average: float
     tech_average: float
@@ -14,7 +14,7 @@ class CandidateResultOut(BaseModel):
 
 
 class StreamAverageOut(BaseModel):
-    stream_id: int
+    stream_id: int | None
     stream_name: str
     tdc_average: float
     tech_average: float
@@ -40,7 +40,7 @@ class MonthlyCandidateResultOut(BaseModel):
     candidate_id: int
     candidate_code: str
     candidate_name: str
-    stream_id: int
+    stream_id: int | None
     stream_name: str
     monthly_tdc_average: float
     monthly_tech_average: float

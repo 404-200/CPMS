@@ -1,283 +1,461 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { listCandidates } from '../api/candidates'
-import { listPeriods } from '../api/periods'
-import { getScore, submitManualScore } from '../api/scores'
+import { createPeriod, listPeriods } from '../api/periods'
+import { submitManualScore } from '../api/scores'
+import { useCohorts } from '../context/CohortContext'
 import { useStreams } from '../context/StreamContext'
 
-const EMPTY_SCORES = {
-  attendance: '',
-  communication: '',
-  accountability: '',
-  creativity: '',
-  project_delivery: '',
-  tech_skills: '',
+const SCORE_FIELDS = [
+  ['attendance', 'Attendance'],
+  ['communication', 'Communication'],
+  ['accountability', 'Accountability'],
+  ['creativity', 'Creativity & Ownership'],
+  ['project_delivery', 'Project Delivery'],
+  ['tech_skills', 'Tech Skills'],
+]
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+function emptyRow() {
+  return {
+    attendance: '', communication: '', accountability: '',
+    creativity: '', project_delivery: '', tech_skills: '',
+    dev_group_name: '', weekly_feedback: '', action_plan: '', commitment_type: 'INDIVIDUAL',
+  }
+}
+
+function rowFromCandidate(c) {
+  return {
+    attendance: c.attendance ?? '',
+    communication: c.communication ?? '',
+    accountability: c.accountability ?? '',
+    creativity: c.creativity ?? '',
+    project_delivery: c.project_delivery ?? '',
+    tech_skills: c.tech_skills ?? '',
+    dev_group_name: c.dev_group_name ?? '',
+    weekly_feedback: c.weekly_feedback ?? '',
+    action_plan: c.action_plan ?? '',
+    commitment_type: c.commitment_type ?? 'INDIVIDUAL',
+  }
+}
+
+function isRowComplete(row) {
+  return SCORE_FIELDS.every(([f]) => row[f] !== '' && row[f] !== null && row[f] !== undefined)
+}
+
+function computeEntry(row) {
+  const v = (f) => Number(row[f]) || 0
+  const tdcRaw = v('attendance') + v('communication') + v('accountability')
+  const techRaw = v('creativity') + v('project_delivery') + v('tech_skills')
+  const tdcPct = (tdcRaw / 15) * 100
+  const techPct = (techRaw / 15) * 100
+  return { tdcPct, techPct, overallPct: (tdcPct + techPct) / 2 }
+}
+
+function fmt(v) {
+  return v === null || v === undefined || Number.isNaN(v) ? '—' : v.toFixed(1)
+}
+
+function bandClasses(pct) {
+  if (pct === null || pct === undefined || Number.isNaN(pct)) return ''
+  if (pct >= 75) return 'alert-success'
+  if (pct >= 60) return ''
+  return 'alert-danger'
+}
+
+// Groups periods by month/year, then labels the earliest-starting one in each
+// group "Biweekly 1" and the next "Biweekly 2" (a 3rd, if it ever exists,
+// becomes "Biweekly 3" rather than breaking). This is a display label only —
+// nothing about it is stored in the database.
+function labelPeriods(periods) {
+  const groups = {}
+  for (const p of periods) {
+    const key = `${p.year}-${p.month}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(p)
+  }
+  const labels = {}
+  Object.values(groups).forEach((group) => {
+    const sorted = [...group].sort((a, b) => a.start_date.localeCompare(b.start_date))
+    sorted.forEach((p, i) => {
+      labels[p.id] = `${MONTH_NAMES[p.month - 1]} ${p.year} - Biweekly ${i + 1}`
+    })
+  })
+  return labels
 }
 
 export default function ManualEntry() {
-  const { streams, currentStreamId, selectStream } = useStreams()
+  const { cohorts, currentCohortId } = useCohorts()
+  const { streams, currentStreamId } = useStreams()
 
+  const [scopeType, setScopeType] = useState('cohort')
+  const [cohortId, setCohortId] = useState(currentCohortId)
   const [streamId, setStreamId] = useState(currentStreamId)
-  const [candidates, setCandidates] = useState([])
-  const [candidateId, setCandidateId] = useState('')
 
   const [periods, setPeriods] = useState([])
   const [periodId, setPeriodId] = useState('')
+  const [periodForm, setPeriodForm] = useState({ start_date: '', end_date: '' })
+  const [showPeriodForm, setShowPeriodForm] = useState(false)
+  const [periodError, setPeriodError] = useState('')
+  const [periodSubmitting, setPeriodSubmitting] = useState(false)
 
-  const [scores, setScores] = useState(EMPTY_SCORES)
-  const [devGroupName, setDevGroupName] = useState('')
-  const [weeklyFeedback, setWeeklyFeedback] = useState('')
-  const [actionPlan, setActionPlan] = useState('')
-  const [commitmentType, setCommitmentType] = useState('INDIVIDUAL')
+  const [candidates, setCandidates] = useState([])
+  const [rows, setRows] = useState({}) // candidateId -> row fields being edited
+  const [loading, setLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+  const [rowStatus, setRowStatus] = useState({}) // candidateId -> 'saving' | 'saved' | error string
+  const [savingAll, setSavingAll] = useState(false)
 
-  const [loadingExisting, setLoadingExisting] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
-
-  useEffect(() => {
-    setStreamId(currentStreamId)
-  }, [currentStreamId])
+  const periodLabels = useMemo(() => labelPeriods(periods), [periods])
 
   useEffect(() => {
     listPeriods('BIWEEKLY').then((res) => setPeriods(res.data))
   }, [])
 
-  useEffect(() => {
-    if (!streamId) {
+  useEffect(() => { setCohortId(currentCohortId) }, [currentCohortId])
+  useEffect(() => { setStreamId(currentStreamId) }, [currentStreamId])
+
+  function refreshCandidates() {
+    const scopeId = scopeType === 'cohort' ? cohortId : streamId
+    if (!scopeId || !periodId) {
       setCandidates([])
+      setRows({})
       return
     }
-    listCandidates({ stream_id: Number(streamId), active_only: true }).then((res) => setCandidates(res.data))
-    setCandidateId('')
-  }, [streamId])
+    setLoading(true)
+    const params = { period_id: Number(periodId), active_only: true }
+    if (scopeType === 'cohort') params.cohort_id = Number(scopeId)
+    else params.stream_id = Number(scopeId)
 
-  // Prefill from an existing score if this candidate already has one for the selected period.
-  useEffect(() => {
-    setResult(null)
-    if (!candidateId || !periodId) {
-      setScores(EMPTY_SCORES)
-      setDevGroupName('')
-      setWeeklyFeedback('')
-      setActionPlan('')
-      setCommitmentType('INDIVIDUAL')
-      return
-    }
-    setLoadingExisting(true)
-    getScore(candidateId, periodId)
+    listCandidates(params)
       .then((res) => {
-        const s = res.data
-        if (s) {
-          setScores({
-            attendance: s.attendance,
-            communication: s.communication,
-            accountability: s.accountability,
-            creativity: s.creativity,
-            project_delivery: s.project_delivery,
-            tech_skills: s.tech_skills,
-          })
-          setDevGroupName(s.dev_group_name || '')
-          setWeeklyFeedback(s.weekly_feedback || '')
-          setActionPlan(s.action_plan || '')
-          setCommitmentType(s.commitment_type || 'INDIVIDUAL')
-        } else {
-          setScores(EMPTY_SCORES)
-          setDevGroupName('')
-          setWeeklyFeedback('')
-          setActionPlan('')
-          setCommitmentType('INDIVIDUAL')
-        }
+        setCandidates(res.data)
+        const next = {}
+        res.data.forEach((c) => { next[c.id] = rowFromCandidate(c) })
+        setRows(next)
+        setRowStatus({})
       })
-      .finally(() => setLoadingExisting(false))
-  }, [candidateId, periodId])
-
-  const selectedCandidate = candidates.find((c) => String(c.id) === String(candidateId))
-
-  function updateScore(field, value) {
-    setScores((prev) => ({ ...prev, [field]: value }))
+      .finally(() => setLoading(false))
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setError('')
-    setSubmitting(true)
+  useEffect(refreshCandidates, [scopeType, cohortId, streamId, periodId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const SCORE_FIELD_SET = new Set(SCORE_FIELDS.map(([f]) => f))
+
+  function updateField(candidateId, field, value) {
+    let clean = value
+    // Only the six 1-5 score boxes get clamped - free-text fields like
+    // weekly_feedback pass through untouched. An empty string is left alone
+    // so the person can clear a box while retyping, instead of it snapping
+    // back to a number mid-edit.
+    if (SCORE_FIELD_SET.has(field) && value !== '') {
+      const n = Math.round(Number(value))
+      clean = Number.isNaN(n) ? '' : String(Math.max(1, Math.min(5, n)))
+    }
+    setRows((prev) => ({ ...prev, [candidateId]: { ...prev[candidateId], [field]: clean } }))
+    setRowStatus((prev) => ({ ...prev, [candidateId]: undefined }))
+  }
+
+  async function saveRow(candidateId) {
+    const row = rows[candidateId]
+    if (!isRowComplete(row)) return
+    setRowStatus((prev) => ({ ...prev, [candidateId]: 'saving' }))
     try {
-      const res = await submitManualScore({
-        candidate_id: Number(candidateId),
+      await submitManualScore({
+        candidate_id: candidateId,
         period_id: Number(periodId),
-        attendance: Number(scores.attendance),
-        communication: Number(scores.communication),
-        accountability: Number(scores.accountability),
-        creativity: Number(scores.creativity),
-        project_delivery: Number(scores.project_delivery),
-        tech_skills: Number(scores.tech_skills),
-        dev_group_name: devGroupName || null,
-        weekly_feedback: weeklyFeedback || null,
-        action_plan: actionPlan || null,
-        commitment_type: commitmentType,
+        attendance: Number(row.attendance),
+        communication: Number(row.communication),
+        accountability: Number(row.accountability),
+        creativity: Number(row.creativity),
+        project_delivery: Number(row.project_delivery),
+        tech_skills: Number(row.tech_skills),
+        dev_group_name: row.dev_group_name || null,
+        weekly_feedback: row.weekly_feedback || null,
+        action_plan: row.action_plan || null,
+        commitment_type: row.commitment_type,
       })
-      setResult(res.data)
+      setRowStatus((prev) => ({ ...prev, [candidateId]: 'saved' }))
     } catch (err) {
-      setError(
+      setRowStatus((prev) => ({
+        ...prev,
+        [candidateId]: typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Could not save',
+      }))
+    }
+  }
+
+  async function saveAll() {
+    setSavingAll(true)
+    const ready = candidates.map((c) => c.id).filter((id) => isRowComplete(rows[id]))
+    await Promise.all(ready.map((id) => saveRow(id)))
+    setSavingAll(false)
+  }
+
+  function updatePeriodForm(field, value) {
+    setPeriodForm((prev) => {
+      const next = { ...prev, [field]: value }
+      return next
+    })
+  }
+
+  async function handleCreatePeriod(e) {
+    e.preventDefault()
+    setPeriodSubmitting(true)
+    setPeriodError('')
+    try {
+      const d = new Date(periodForm.start_date)
+      const res = await createPeriod({
+        period_type: 'BIWEEKLY',
+        start_date: periodForm.start_date,
+        end_date: periodForm.end_date,
+        month: d.getMonth() + 1,
+        year: d.getFullYear(),
+      })
+      const updated = await listPeriods('BIWEEKLY')
+      setPeriods(updated.data)
+      setPeriodId(String(res.data.id))
+      setPeriodForm({ start_date: '', end_date: '' })
+      setShowPeriodForm(false)
+    } catch (err) {
+      setPeriodError(
         typeof err.response?.data?.detail === 'string'
           ? err.response.data.detail
-          : 'Could not save this score — check the values and try again.'
+          : 'Could not create this period — check the dates and try again.'
       )
     } finally {
-      setSubmitting(false)
+      setPeriodSubmitting(false)
     }
   }
+
+  const readyCount = candidates.filter((c) => isRowComplete(rows[c.id] || {})).length
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Manual Score Entry</h1>
+          <h1 className="page-title">Biweekly Score Entry</h1>
           <p className="page-subtitle">
-            Key in one candidate's weekly scores, dev group, feedback, and action plan by hand. Overall score is
-            calculated automatically once you save.
+            Pick a biweekly period and a cohort or stream, then score everyone at once. Overall score is
+            calculated automatically as you type.
           </p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: 720 }}>
-        <div className="form-grid">
-          <label className="field">
-            Stream
-            <select
-              className="input"
-              value={streamId}
-              onChange={(e) => {
-                setStreamId(e.target.value)
-                selectStream(e.target.value)
-              }}
-              required
-            >
-              <option value="">Select a stream…</option>
-              {streams.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
+      <div className="form-row" style={{ marginBottom: '1rem' }}>
+        <span className="muted" style={{ fontSize: '0.85rem', marginRight: '0.25rem' }}>Scope:</span>
+        <button type="button" className={`btn-pill ${scopeType === 'cohort' ? 'active' : ''}`} onClick={() => setScopeType('cohort')}>
+          Cohort
+        </button>
+        <button type="button" className={`btn-pill ${scopeType === 'stream' ? 'active' : ''}`} onClick={() => setScopeType('stream')}>
+          Stream
+        </button>
+      </div>
 
-          <label className="field">
-            Candidate
-            <select className="input" value={candidateId} onChange={(e) => setCandidateId(e.target.value)} required disabled={!streamId}>
-              <option value="">Select a candidate…</option>
-              {candidates.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.first_name} {c.last_name} ({c.candidate_code})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            Biweekly period
-            <select className="input" value={periodId} onChange={(e) => setPeriodId(e.target.value)} required>
-              <option value="">Select a period…</option>
-              {periods.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.start_date} – {p.end_date}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {loadingExisting && <p className="muted" style={{ margin: 0 }}>Checking for an existing entry…</p>}
-
-        <div>
-          <div className="section-title" style={{ margin: '0 0 0.75rem' }}>Scores (0–100)</div>
-          <div className="form-grid">
-            <ScoreField label="Attendance" value={scores.attendance} onChange={(v) => updateScore('attendance', v)} />
-            <ScoreField label="Communication" value={scores.communication} onChange={(v) => updateScore('communication', v)} />
-            <ScoreField label="Accountability" value={scores.accountability} onChange={(v) => updateScore('accountability', v)} />
-            <ScoreField label="Creativity & Ownership" value={scores.creativity} onChange={(v) => updateScore('creativity', v)} />
-            <ScoreField label="Subject Deliverables" value={scores.project_delivery} onChange={(v) => updateScore('project_delivery', v)} />
-            <ScoreField label="Tech Skills" value={scores.tech_skills} onChange={(v) => updateScore('tech_skills', v)} />
-          </div>
-        </div>
-
-        <div className="form-grid">
-          <label className="field">
-            Dev group name
-            <input
-              className="input"
-              placeholder="e.g. Squad Alpha"
-              value={devGroupName}
-              onChange={(e) => setDevGroupName(e.target.value)}
-            />
-          </label>
-
-          <label className="field">
-            Commitment for the week ahead
-            <div className="radio-group" style={{ paddingTop: '0.5rem' }}>
-              <label>
-                <input type="radio" checked={commitmentType === 'INDIVIDUAL'} onChange={() => setCommitmentType('INDIVIDUAL')} />
-                Individual
-              </label>
-              <label>
-                <input type="radio" checked={commitmentType === 'GROUP'} onChange={() => setCommitmentType('GROUP')} />
-                Group
-              </label>
-            </div>
-          </label>
-        </div>
-
-        <label className="field">
-          Weekly feedback
-          <textarea
-            className="input"
-            placeholder="How did the week go for this candidate?"
-            value={weeklyFeedback}
-            onChange={(e) => setWeeklyFeedback(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          Action plan for the week ahead
-          <textarea
-            className="input"
-            placeholder="What is the individual or group commitment for next week?"
-            value={actionPlan}
-            onChange={(e) => setActionPlan(e.target.value)}
-          />
-        </label>
-
-        {error && <p className="alert alert-danger" style={{ margin: 0 }}>{error}</p>}
-
-        {result && (
-          <div className="alert alert-success" style={{ margin: 0 }}>
-            Saved{selectedCandidate ? ` for ${selectedCandidate.first_name} ${selectedCandidate.last_name}` : ''}. Overall
-            score: <strong>{result.overall_average}</strong> (TDC {result.tdc_average}, Tech {result.tech_average}) — currently
-            ranked #{result.ranking} for this period.
-          </div>
+      <div className="form-row" style={{ marginBottom: '1rem', alignItems: 'center', gap: '1rem' }}>
+        {scopeType === 'cohort' ? (
+          <select className="input" style={{ width: 'auto' }} value={cohortId} onChange={(e) => setCohortId(e.target.value)}>
+            <option value="">Select a cohort…</option>
+            {cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        ) : (
+          <select className="input" style={{ width: 'auto' }} value={streamId} onChange={(e) => setStreamId(e.target.value)}>
+            <option value="">Select a stream…</option>
+            {streams.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
         )}
 
-        <button type="submit" className="btn btn-primary" style={{ width: 'fit-content' }} disabled={submitting || !candidateId || !periodId}>
-          {submitting ? 'Saving…' : 'Save score'}
-        </button>
-      </form>
-    </div>
-  )
-}
+        <select className="input" style={{ width: 'auto' }} value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
+          <option value="">Select a biweekly period…</option>
+          {periods.map((p) => (
+            <option key={p.id} value={p.id}>{periodLabels[p.id]}</option>
+          ))}
+        </select>
 
-function ScoreField({ label, value, onChange }) {
-  return (
-    <label className="field">
-      {label}
-      <input
-        className="input"
-        type="number"
-        min="0"
-        max="100"
-        step="0.1"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required
-      />
-    </label>
+        <button type="button" className="btn-link" onClick={() => setShowPeriodForm((v) => !v)}>
+          {showPeriodForm ? 'Cancel' : '+ New biweekly period'}
+        </button>
+      </div>
+
+      {showPeriodForm && (
+        <form onSubmit={handleCreatePeriod} className="card" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 480 }}>
+          <div className="form-grid">
+            <label className="field" style={{ fontSize: '0.8rem' }}>
+              Start date
+              <input className="input" type="date" value={periodForm.start_date}
+                onChange={(e) => updatePeriodForm('start_date', e.target.value)} required />
+            </label>
+            <label className="field" style={{ fontSize: '0.8rem' }}>
+              End date
+              <input className="input" type="date" value={periodForm.end_date}
+                onChange={(e) => updatePeriodForm('end_date', e.target.value)} required />
+            </label>
+          </div>
+          <div className="muted" style={{ fontSize: '0.78rem' }}>
+            Whichever biweekly period starts earliest in a given month is shown as "Biweekly 1", the next as
+            "Biweekly 2" - you don't need to pick a number yourself.
+          </div>
+          {periodError && <p className="alert alert-danger" style={{ margin: 0 }}>{periodError}</p>}
+          <button type="submit" className="btn btn-primary" style={{ width: 'fit-content' }} disabled={periodSubmitting}>
+            {periodSubmitting ? 'Creating…' : 'Create period'}
+          </button>
+        </form>
+      )}
+
+      {!periodId || !(scopeType === 'cohort' ? cohortId : streamId) ? (
+        <p className="muted">Select a {scopeType} and a biweekly period above to start entering scores.</p>
+      ) : loading ? (
+        <p className="muted">Loading…</p>
+      ) : candidates.length === 0 ? (
+        <p className="muted">No active candidates in this {scopeType} yet.</p>
+      ) : (
+        <>
+          <div className="form-row" style={{ marginBottom: '0.75rem', alignItems: 'center' }}>
+            <button type="button" className="btn btn-primary" disabled={savingAll || readyCount === 0} onClick={saveAll}>
+              {savingAll ? 'Saving…' : `Save all complete rows (${readyCount}/${candidates.length})`}
+            </button>
+          </div>
+
+          <div className="table-wrap" style={{ marginBottom: '2rem' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  {SCORE_FIELDS.map(([f, label]) => (
+                    <th key={f} style={{ textAlign: 'center' }}>{label}</th>
+                  ))}
+                  <th style={{ textAlign: 'center' }}>Overall %</th>
+                  <th></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((c) => {
+                  const row = rows[c.id] || emptyRow()
+                  const complete = isRowComplete(row)
+                  const { overallPct } = complete ? computeEntry(row) : { overallPct: null }
+                  const status = rowStatus[c.id]
+                  return (
+                    <Fragment key={c.id}>
+                      <tr>
+                        <td>{c.first_name} {c.last_name}<div className="muted" style={{ fontSize: '0.72rem' }}>{c.candidate_code}</div></td>
+                        {SCORE_FIELDS.map(([f]) => (
+                          <td key={f} style={{ textAlign: 'center' }}>
+                            <input
+                              type="number" min="1" max="5" step="1"
+                              value={row[f]}
+                              onChange={(e) => updateField(c.id, f, e.target.value)}
+                              style={{ width: '3.2rem', textAlign: 'center' }}
+                              className="input"
+                            />
+                          </td>
+                        ))}
+                        <td style={{ textAlign: 'center', fontWeight: 700 }}>{fmt(overallPct)}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <button type="button" className="btn btn-primary" disabled={!complete || status === 'saving'} onClick={() => saveRow(c.id)}>
+                            {status === 'saving' ? 'Saving…' : 'Save'}
+                          </button>
+                        </td>
+                        <td>
+                          <button type="button" className="btn-link" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
+                            {expandedId === c.id ? 'Hide notes' : 'Notes'}
+                          </button>
+                        </td>
+                      </tr>
+                      {status && status !== 'saving' && (
+                        <tr>
+                          <td colSpan={SCORE_FIELDS.length + 3} style={{ paddingTop: 0 }}>
+                            {status === 'saved' ? (
+                              <span className="alert alert-success" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>Saved</span>
+                            ) : (
+                              <span className="alert alert-danger" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>{status}</span>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      {expandedId === c.id && (
+                        <tr>
+                          <td colSpan={SCORE_FIELDS.length + 3}>
+                            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                              <div className="form-grid">
+                                <label className="field">
+                                  Dev group name
+                                  <input className="input" value={row.dev_group_name}
+                                    onChange={(e) => updateField(c.id, 'dev_group_name', e.target.value)} />
+                                </label>
+                                <label className="field">
+                                  Commitment for the week ahead
+                                  <div className="radio-group" style={{ paddingTop: '0.5rem' }}>
+                                    <label>
+                                      <input type="radio" checked={row.commitment_type === 'INDIVIDUAL'}
+                                        onChange={() => updateField(c.id, 'commitment_type', 'INDIVIDUAL')} /> Individual
+                                    </label>
+                                    <label>
+                                      <input type="radio" checked={row.commitment_type === 'GROUP'}
+                                        onChange={() => updateField(c.id, 'commitment_type', 'GROUP')} /> Group
+                                    </label>
+                                  </div>
+                                </label>
+                              </div>
+                              <label className="field">
+                                Weekly feedback
+                                <textarea className="input" value={row.weekly_feedback}
+                                  onChange={(e) => updateField(c.id, 'weekly_feedback', e.target.value)} />
+                              </label>
+                              <label className="field">
+                                Action plan for the week ahead
+                                <textarea className="input" value={row.action_plan}
+                                  onChange={(e) => updateField(c.id, 'action_plan', e.target.value)} />
+                              </label>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <h2 className="section-title">Results for {periodLabels[periodId]}</h2>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Cohort</th>
+                  <th>Stream</th>
+                  {SCORE_FIELDS.map(([f, label]) => <th key={f} style={{ textAlign: 'center' }}>{label}</th>)}
+                  <th style={{ textAlign: 'center' }}>TDC %</th>
+                  <th style={{ textAlign: 'center' }}>Tech %</th>
+                  <th style={{ textAlign: 'center' }}>Overall %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((c) => {
+                  const row = rows[c.id] || emptyRow()
+                  const complete = isRowComplete(row)
+                  const entry = complete ? computeEntry(row) : null
+                  return (
+                    <tr key={c.id}>
+                      <td>{c.first_name} {c.last_name}</td>
+                      <td>{c.cohort_name ?? '—'}</td>
+                      <td>{c.stream_name ?? '—'}</td>
+                      {SCORE_FIELDS.map(([f]) => <td key={f} style={{ textAlign: 'center' }}>{row[f] || '—'}</td>)}
+                      <td className={bandClasses(entry?.tdcPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.tdcPct) : '—'}</td>
+                      <td className={bandClasses(entry?.techPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.techPct) : '—'}</td>
+                      <td className={bandClasses(entry?.overallPct)} style={{ textAlign: 'center', fontWeight: 700 }}>{entry ? fmt(entry.overallPct) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
