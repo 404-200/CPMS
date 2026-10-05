@@ -76,7 +76,8 @@ a {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-body {
@@ -89,7 +90,13 @@ a {
   flex: 1;
   padding: 2rem 2.5rem 3rem;
   min-width: 0;
+  overflow-y: auto;
 }
+
+.page-narrow { 
+  max-width: 900px; 
+  margin-left: auto; 
+  margin-right: auto; }
 
 .page-header {
   display: flex;
@@ -184,6 +191,11 @@ a {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar-section-label {

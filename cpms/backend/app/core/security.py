@@ -8,6 +8,7 @@ is scaffolded now so config/database are exercised end-to-end in Phase 1.
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import secrets
 
 import bcrypt
 from jose import JWTError, jwt
@@ -20,6 +21,7 @@ from app.core.config import settings
 # 72 bytes itself; we pre-truncate so long passwords fail closed rather
 # than raising.
 _MAX_PASSWORD_BYTES = 72
+RESET_TOKEN_EXPIRE_MINUTES = 30
 
 
 def hash_password(plain_password: str) -> str:
@@ -49,3 +51,7 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
+
+    def generate_reset_token() -> str:
+        """URL-safe, unguessable token for the password-reset email link."""
+        return secrets.token_urlsafe(32)

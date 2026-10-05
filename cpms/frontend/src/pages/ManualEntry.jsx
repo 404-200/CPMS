@@ -233,7 +233,7 @@ export default function ManualEntry() {
   const readyCount = candidates.filter((c) => isRowComplete(rows[c.id] || {})).length
 
   return (
-    <div>
+    <div className="page-narrow">
       <div className="page-header">
         <div>
           <h1 className="page-title">Biweekly Score Entry</h1>
