@@ -1,15 +1,21 @@
 """
 Pure calculation functions for candidate scoring. Kept free of DB/ORM
 concerns so they're trivial to unit test (see app/tests/test_calculations.py).
+
+Each of communication, attendance, accountability, project_delivery,
+tech_skills, and creativity is entered on a 1-5 scale. TDC and Tech are
+each the sum of their three scores out of a possible 15, shown as a
+percentage - e.g. (5+4+3)/15*100 = 80.0 - matching how the mentor's
+original scorecard reports every number (TDC%, Tech%, Overall%).
 """
 
 
 def calculate_tdc_average(communication: float, attendance: float, accountability: float) -> float:
-    return round((communication + attendance + accountability) / 3, 2)
+    return round((communication + attendance + accountability) / 15 * 100, 2)
 
 
 def calculate_tech_average(project_delivery: float, tech_skills: float, creativity: float) -> float:
-    return round((project_delivery + tech_skills + creativity) / 3, 2)
+    return round((project_delivery + tech_skills + creativity) / 15 * 100, 2)
 
 
 def calculate_overall_average(tdc_average: float, tech_average: float) -> float:

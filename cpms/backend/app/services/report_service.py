@@ -75,7 +75,7 @@ def get_monthly_results(db: Session, month: int, year: int) -> dict:
                 "candidate_code": candidate.candidate_code,
                 "candidate_name": candidate.full_name,
                 "stream_id": candidate.stream_id,
-                "stream_name": candidate.stream.name if candidate.stream else "",
+                "stream_name": candidate.stream.name if candidate.stream else "Not yet assigned",
                 "overall_average": monthly_overall,
                 "monthly_tdc_average": monthly_tdc,
                 "monthly_tech_average": monthly_tech,
