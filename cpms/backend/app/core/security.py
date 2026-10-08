@@ -6,6 +6,17 @@ user, role-based access control) is implemented in Phase 3. This module
 is scaffolded now so config/database are exercised end-to-end in Phase 1.
 """
 
+import secrets
+
+RESET_TOKEN_EXPIRE_MINUTES = 30
+
+
+def generate_reset_token() -> str:
+    """A random, unguessable token for password-reset / invite links.
+    Stored on the user row (reset_token) and checked by exact match in
+    /reset-password, alongside its expiry (reset_token_expires_at)."""
+    return secrets.token_urlsafe(32)
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import secrets

@@ -1,4 +1,12 @@
-"""Authentication routes: register, login (JWT), /me, and password reset."""
+"""
+Authentication routes: admin-only invite, login (JWT), /me, and
+password reset.
+
+There is deliberately no public self-registration endpoint — this is an
+admin-only system, so accounts are created by an existing admin via
+/invite, and the invited user sets their own password via the same
+token-based flow as /forgot-password + /reset-password.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -6,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_roles
 from app.core.security import (
     RESET_TOKEN_EXPIRE_MINUTES,
     create_access_token,
@@ -14,37 +22,67 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.user import User
+from app.core.config import settings
+from app.models.user import User, UserRole
 from app.schemas.auth import (
     ForgotPasswordRequest,
+    InviteOut,
+    InviteRequest,
     LoginRequest,
     MessageResponse,
-    RegisterRequest,
     ResetPasswordRequest,
     TokenResponse,
     UserOut,
 )
-from app.services.email_service import send_password_reset_email
+from app.services.email_service import send_invite_email, send_password_reset_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def _issue_reset_token(db: Session, user: User) -> str:
+    token = generate_reset_token()
+    user.reset_token = token
+    user.reset_token_expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=RESET_TOKEN_EXPIRE_MINUTES
+    )
+    db.commit()
+    return token
+
+
+@router.post("/invite", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+def invite_user(
+    payload: InviteRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_roles(UserRole.ADMIN)),
+):
+    """Admin-only: create an account with no usable password, email the
+    new user a link to set one, and also return that link (useful if
+    SMTP isn't configured, or you want to forward it manually)."""
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
+    import secrets
+
     user = User(
         full_name=payload.full_name,
         email=payload.email,
-        password_hash=hash_password(payload.password),
+        password_hash=hash_password(secrets.token_urlsafe(32)),  # unusable placeholder
         role=payload.role,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+
+    token = _issue_reset_token(db, user)
+    reset_link = f"{settings.frontend_base_url}/reset-password?token={token}"
+
+    try:
+        send_invite_email(user.email, reset_link)
+    except Exception as exc:
+        print(f"[invite] Failed to send invite email to {user.email}: {exc}")
+
+    return InviteOut(user=user, reset_token=token, reset_url=reset_link)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -71,19 +109,14 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     Always returns the same generic message whether or not the email exists,
     so this endpoint can't be used to check which emails are registered.
     """
-    from app.core.config import settings
-
     user = db.query(User).filter(User.email == payload.email).first()
     if user is not None:
-        token = generate_reset_token()
-        user.reset_token = token
-        user.reset_token_expires_at = datetime.now(timezone.utc) + timedelta(
-            minutes=RESET_TOKEN_EXPIRE_MINUTES
-        )
-        db.commit()
-
+        token = _issue_reset_token(db, user)
         reset_link = f"{settings.frontend_base_url}/reset-password?token={token}"
-        send_password_reset_email(user.email, reset_link)
+        try:
+            send_password_reset_email(user.email, reset_link)
+        except Exception as exc:
+            print(f"[forgot-password] Failed to send email to {user.email}: {exc}")
 
     return MessageResponse(
         message="If an account with that email exists, a password reset link has been sent."

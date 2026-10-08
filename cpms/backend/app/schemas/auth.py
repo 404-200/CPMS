@@ -5,10 +5,13 @@ from pydantic import BaseModel, EmailStr, Field
 from app.models.user import UserRole
 
 
-class RegisterRequest(BaseModel):
+class InviteRequest(BaseModel):
+    """Payload an admin submits to create a new account (see /invite in
+    routers/auth.py). No password field — the invited user sets their
+    own via the emailed reset link."""
+
     full_name: str = Field(min_length=1, max_length=255)
     email: EmailStr
-    password: str = Field(min_length=8)
     role: UserRole = UserRole.VIEWER
 
 
@@ -27,10 +30,22 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InviteOut(BaseModel):
+    """Returned to the admin who invited the user, containing the
+    set-password link in case email delivery fails or they want to
+    forward it manually."""
+
+    user: UserOut
+    reset_token: str
+    reset_url: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 

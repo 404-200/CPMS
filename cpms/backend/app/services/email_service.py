@@ -38,3 +38,29 @@ def send_password_reset_email(to_email: str, reset_link: str) -> None:
         if settings.smtp_user and settings.smtp_password:
             server.login(settings.smtp_user, settings.smtp_password)
         server.sendmail(settings.smtp_from_email, [to_email], message.as_string())
+
+
+def send_invite_email(to_email: str, reset_link: str) -> None:
+    subject = "You've been invited to Candidate Performance Management"
+    body = (
+        f"Hello,\n\n"
+        f"An admin has created an account for you. Click the link below to "
+        f"set your password and get started. This link expires in 30 minutes.\n\n"
+        f"{reset_link}"
+    )
+
+    if not settings.smtp_host:
+        print(f"\n[invite] No SMTP configured — invite link for {to_email}:\n{reset_link}\n")
+        return
+
+    message = MIMEText(body)
+    message["Subject"] = subject
+    message["From"] = settings.smtp_from_email
+    message["To"] = to_email
+
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+        if settings.smtp_use_tls:
+            server.starttls()
+        if settings.smtp_user and settings.smtp_password:
+            server.login(settings.smtp_user, settings.smtp_password)
+        server.sendmail(settings.smtp_from_email, [to_email], message.as_string())
