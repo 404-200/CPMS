@@ -12,6 +12,13 @@ export const listStreams = () => client.get('/api/streams')
 
 export const createStream = (payload) => client.post('/api/streams', payload)
 export const deleteStream = (id) => client.delete(`/api/streams/${id}`)
+
+export const permanentlyDeleteCandidate = (id) => client.delete(`/api/candidates/${id}/permanent`)
+
+export const listCohorts = () => client.get('/api/cohorts')
+
+export const createCohort = (payload) => client.post('/api/cohorts', payload)
+export const deleteCohort = (id) => client.delete(`/api/cohorts/${id}`)
 export const importCandidatesDocument = (file) => {
   const formData = new FormData()
   formData.append('file', file)

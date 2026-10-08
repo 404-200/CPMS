@@ -9,7 +9,7 @@ export default function StreamChart({ streamAverages }) {
     <div className="card">
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={streamAverages}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#395ece" />
           <XAxis dataKey="stream_name" tick={{ fontSize: 12 }} />
           <YAxis domain={[0, 100]} />
           <Tooltip />

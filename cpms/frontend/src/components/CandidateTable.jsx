@@ -1,220 +1,181 @@
 import { useState } from 'react'
-import { submitManualScore } from '../api/scores'
 
-function scoreColor(value) {
-  if (value == null) return 'transparent'
-  if (value <= 2) return '#E8A33D' // orange
-  if (value === 3) return '#F5E050' // yellow
-  return '#7DC242' // green (4-5)
-}
-
-function overallColor(pct) {
-  if (pct == null) return '#e5e5e5'
-  if (pct < 65) return '#E05B4F' // red
-  if (pct < 75) return '#F5E050' // yellow
-  return '#7DC242' // green
-}
-
-function ScoreCell({ value }) {
-  return (
-    <td style={{ background: scoreColor(value), textAlign: 'center', fontWeight: 600 }}>
-      {value ?? '—'}
-    </td>
-  )
-}
-
-const SCORE_FIELDS = [
-  ['attendance', 'Attendance'],
-  ['communication', 'Communication'],
-  ['accountability', 'Accountability'],
-  ['creativity', 'Creativity & Ownership'],
-  ['project_delivery', 'Project Delivery'],
-  ['tech_skills', 'Tech Skills'],
-]
-
-function emptyFormFrom(candidate) {
-  return {
-    attendance: candidate.attendance ?? '',
-    communication: candidate.communication ?? '',
-    accountability: candidate.accountability ?? '',
-    creativity: candidate.creativity ?? '',
-    project_delivery: candidate.project_delivery ?? '',
-    tech_skills: candidate.tech_skills ?? '',
-    dev_group_name: candidate.dev_group_name ?? '',
-    weekly_feedback: candidate.weekly_feedback ?? '',
-    action_plan: candidate.action_plan ?? '',
-  }
-}
-
-export default function CandidateTable({ candidates, periodId, onScoreSaved, onEdit, onDeactivate }) {
-  const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({})
-  const [saving, setSaving] = useState(false)
-  const [rowError, setRowError] = useState('')
+/**
+ * Reusable candidate table.
+ *
+ * Every feature is switched on by passing its handler, so other pages can
+ * reuse this component and only get what they ask for:
+ *
+ *   candidates        (required) list of candidates from the API
+ *   streams           list of { id, name } - needed for stream dropdowns
+ *   onAssignStreams   async (candidateIds[], streamId) => void
+ *                     enables the per-row stream dropdown, the checkboxes
+ *                     and the "assign selected" bar
+ *   onDeactivate      async (candidate) => void  (asks "are you sure?" first)
+ *   onDelete          async (candidate) => void  (asks "are you sure?" first)
+ */
+export default function CandidateTable({
+  candidates,
+  streams = [],
+  onAssignStreams,
+  onDeactivate,
+  onDelete,
+}) {
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkStreamId, setBulkStreamId] = useState('')
+  const [busy, setBusy] = useState(false)
 
   if (!candidates.length) {
     return <p className="muted">No candidates yet.</p>
   }
 
-  function startEdit(candidate) {
-    setEditingId(candidate.id)
-    setForm(emptyFormFrom(candidate))
-    setRowError('')
+  const canAssign = Boolean(onAssignStreams)
+  const showActions = Boolean(onDeactivate || onDelete)
+
+  // Only count selections that are still in the table (e.g. after a filter change).
+  const visibleIds = candidates.map((c) => c.id)
+  const selected = visibleIds.filter((id) => selectedIds.has(id))
+  const allSelected = selected.length === visibleIds.length
+
+  function toggleOne(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
-  function cancelEdit() {
-    setEditingId(null)
-    setForm({})
-    setRowError('')
+  function toggleAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(visibleIds))
   }
 
-  function updateField(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }))
-  }
-
-  async function saveEdit(candidateId) {
-    if (!periodId) {
-      setRowError('Select a period above before entering scores.')
-      return
-    }
-    setSaving(true)
-    setRowError('')
+  async function run(action) {
+    setBusy(true)
     try {
-      await submitManualScore({
-        candidate_id: candidateId,
-        period_id: Number(periodId),
-        attendance: Number(form.attendance),
-        communication: Number(form.communication),
-        accountability: Number(form.accountability),
-        creativity: Number(form.creativity),
-        project_delivery: Number(form.project_delivery),
-        tech_skills: Number(form.tech_skills),
-        dev_group_name: form.dev_group_name || null,
-        weekly_feedback: form.weekly_feedback || null,
-        action_plan: form.action_plan || null,
-        commitment_type: 'INDIVIDUAL',
-      })
-      setEditingId(null)
-      setForm({})
-      if (onScoreSaved) onScoreSaved()
-    } catch (err) {
-      setRowError(
-        typeof err.response?.data?.detail === 'string'
-          ? err.response.data.detail
-          : 'Could not save these scores — check the values and try again.'
-      )
+      await action()
     } finally {
-      setSaving(false)
+      setBusy(false)
     }
+  }
+
+  function assignOne(candidate, streamId) {
+    if (!streamId) return
+    run(() => onAssignStreams([candidate.id], Number(streamId)))
+  }
+
+  function assignSelected() {
+    if (!bulkStreamId || selected.length === 0) return
+    run(async () => {
+      await onAssignStreams(selected, Number(bulkStreamId))
+      setSelectedIds(new Set())
+      setBulkStreamId('')
+    })
+  }
+
+  function handleDeactivate(candidate) {
+    const ok = window.confirm(
+      `Are you sure you want to deactivate ${candidate.first_name} ${candidate.last_name}?`
+    )
+    if (ok) run(() => onDeactivate(candidate))
+  }
+
+  function handleDelete(candidate) {
+    const ok = window.confirm(
+      `Permanently delete ${candidate.first_name} ${candidate.last_name} (${candidate.candidate_code})? ` +
+        'Their score history will be deleted too. This cannot be undone.'
+    )
+    if (ok) run(() => onDelete(candidate))
   }
 
   return (
-    <div className="table-wrap">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Stream</th>
-            {SCORE_FIELDS.map(([field, label]) => (
-              <th key={field} style={{ textAlign: 'center' }}>
-                {label}
-              </th>
+    <div>
+      {canAssign && selected.length > 0 && (
+        <div className="card" style={{ marginBottom: '0.75rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: '0.9rem' }}>{selected.length} selected</strong>
+          <select
+            className="input"
+            style={{ width: 'auto' }}
+            value={bulkStreamId}
+            onChange={(e) => setBulkStreamId(e.target.value)}
+          >
+            <option value="">Assign to stream…</option>
+            {streams.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
-            <th style={{ textAlign: 'center' }}>Overall Score</th>
-            <th>Dev Group</th>
-            <th>Weekly Feedback</th>
-            <th>Action Plan</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {candidates.map((c) => {
-            const isEditing = editingId === c.id
+          </select>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !bulkStreamId}
+            onClick={assignSelected}
+          >
+            {busy ? 'Saving…' : 'Apply'}
+          </button>
+          <button type="button" className="btn-link" onClick={() => setSelectedIds(new Set())}>
+            Clear selection
+          </button>
+        </div>
+      )}
 
-            return (
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              {canAssign && (
+                <th style={{ width: '2rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all candidates"
+                  />
+                </th>
+              )}
+              <th>Name</th>
+              <th>Cohort</th>
+              <th>Stream</th>
+              <th>Status</th>
+              {showActions && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {candidates.map((c) => (
               <tr key={c.id}>
+                {canAssign && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(c.id)}
+                      onChange={() => toggleOne(c.id)}
+                      aria-label={`Select ${c.first_name} ${c.last_name}`}
+                    />
+                  </td>
+                )}
+
                 <td>
                   {c.first_name} {c.last_name}
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>{c.candidate_code}</div>
                 </td>
-                <td>{c.stream_name}</td>
 
-                {isEditing
-                  ? SCORE_FIELDS.map(([field]) => (
-                      <td key={field} style={{ textAlign: 'center' }}>
-                        <input
-                          className="input"
-                          type="number"
-                          min="0"
-                          max="5"
-                          step="0.1"
-                          style={{ width: '4rem', textAlign: 'center' }}
-                          value={form[field]}
-                          onChange={(e) => updateField(field, e.target.value)}
-                        />
-                      </td>
-                    ))
-                  : SCORE_FIELDS.map(([field]) => <ScoreCell key={field} value={c[field]} />)}
+                <td>{c.cohort_name ?? '—'}</td>
 
-                <td style={{ textAlign: 'center' }}>
-                  {c.overall_average != null ? (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '2.6rem',
-                        height: '2.6rem',
-                        borderRadius: '50%',
-                        background: overallColor(c.overall_average),
-                        color: '#fff',
-                        fontWeight: 700,
-                        fontSize: '0.8rem',
-                      }}
+                <td>
+                  {canAssign ? (
+                    <select
+                      className="input"
+                      style={{ minWidth: '9rem' }}
+                      value={c.stream_id ?? ''}
+                      disabled={busy}
+                      onChange={(e) => assignOne(c, e.target.value)}
                     >
-                      {Math.round(c.overall_average)}%
-                    </span>
+                      <option value="" disabled>Not assigned</option>
+                      {streams.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
                   ) : (
-                    '—'
-                  )}
-                </td>
-
-                <td>
-                  {isEditing ? (
-                    <input
-                      className="input"
-                      style={{ width: '8rem' }}
-                      value={form.dev_group_name}
-                      onChange={(e) => updateField('dev_group_name', e.target.value)}
-                    />
-                  ) : (
-                    c.dev_group_name ?? '—'
-                  )}
-                </td>
-
-                <td>
-                  {isEditing ? (
-                    <textarea
-                      className="input"
-                      style={{ width: '10rem', minHeight: '2.5rem' }}
-                      value={form.weekly_feedback}
-                      onChange={(e) => updateField('weekly_feedback', e.target.value)}
-                    />
-                  ) : (
-                    c.weekly_feedback ?? '—'
-                  )}
-                </td>
-
-                <td>
-                  {isEditing ? (
-                    <textarea
-                      className="input"
-                      style={{ width: '10rem', minHeight: '2.5rem' }}
-                      value={form.action_plan}
-                      onChange={(e) => updateField('action_plan', e.target.value)}
-                    />
-                  ) : (
-                    c.action_plan ?? '—'
+                    c.stream_name ?? '—'
                   )}
                 </td>
 
@@ -224,49 +185,36 @@ export default function CandidateTable({ candidates, periodId, onScoreSaved, onE
                   </span>
                 </td>
 
-                <td style={{ whiteSpace: 'nowrap' }}>
-                  {isEditing ? (
-                    <>
+                {showActions && (
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {onDeactivate && c.active && (
                       <button
-                        className="btn-link"
-                        style={{ marginRight: '0.5rem' }}
-                        onClick={() => saveEdit(c.id)}
-                        disabled={saving}
+                        type="button"
+                        className="btn-danger-text"
+                        style={{ marginRight: '0.75rem' }}
+                        disabled={busy}
+                        onClick={() => handleDeactivate(c)}
                       >
-                        {saving ? 'Saving…' : 'Save'}
+                        Deactivate
                       </button>
-                      <button className="btn-link" onClick={cancelEdit} disabled={saving}>
-                        Cancel
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        className="btn-danger-text"
+                        disabled={busy}
+                        onClick={() => handleDelete(c)}
+                      >
+                        Delete
                       </button>
-                      {rowError && (
-                        <div style={{ color: 'var(--color-danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                          {rowError}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <button className="btn-link" style={{ marginRight: '0.75rem' }} onClick={() => startEdit(c)}>
-                        Edit scores
-                      </button>
-                      {onEdit && (
-                        <button className="btn-link" style={{ marginRight: '0.75rem' }} onClick={() => onEdit(c)}>
-                          Edit
-                        </button>
-                      )}
-                      {onDeactivate && c.active && (
-                        <button className="btn-danger-text" onClick={() => onDeactivate(c)}>
-                          Deactivate
-                        </button>
-                      )}
-                    </>
-                  )}
-                </td>
+                    )}
+                  </td>
+                )}
               </tr>
-            )
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

@@ -44,7 +44,7 @@ export default function UploadScores() {
           <h1 className="page-title">Upload Score Sheet</h1>
           <p className="page-subtitle">
             Auto-fill scores for a whole period from a spreadsheet: Candidate ID, Candidate Name, Stream,
-            Communication, Attendance, Accountability, Project Delivery, Tech Skills, Creativity — plus optional
+            Communication, Attendance, Accountability, Project Delivery, Tech Skills, Creativity - plus optional
             Dev Group, Weekly Feedback, and Action Plan columns.
           </p>
         </div>

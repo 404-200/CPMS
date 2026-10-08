@@ -11,6 +11,7 @@ import ManualEntry from './pages/ManualEntry'
 import MonthlyResults from './pages/MonthlyResults'
 import ResetPassword from './pages/ResetPassword'
 import UploadScores from './pages/UploadScores'
+import { CohortProvider } from './context/CohortContext'
 
 function ProtectedLayout({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -94,9 +95,11 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <StreamProvider>
-        <AppRoutes />
-      </StreamProvider>
+      <CohortProvider>
+        <StreamProvider>
+          <AppRoutes />
+        </StreamProvider>
+      </CohortProvider>
     </AuthProvider>
   )
 }

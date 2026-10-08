@@ -566,6 +566,16 @@ table.data-table {
   background: rgba(255, 255, 255, 0.16);
 }
 
+.switcher-on-light .stream-switcher-trigger {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.switcher-on-light .stream-switcher-trigger:hover {
+  background: var(--color-pink-light);
+}
+
 .stream-switcher-menu {
   position: absolute;
   top: calc(100% + 8px);

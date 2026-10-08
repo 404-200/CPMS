@@ -40,7 +40,7 @@ def _build_candidate_results(db: Session, period_id: int) -> list[CandidateResul
                 candidate_code=candidate.candidate_code,
                 candidate_name=candidate.full_name,
                 stream_id=candidate.stream_id,
-                stream_name=candidate.stream.name if candidate.stream else "",
+                stream_name=candidate.stream.name if candidate.stream else "Not yet assigned",
                 tdc_average=r.tdc_average,
                 tech_average=r.tech_average,
                 overall_average=r.overall_average,
