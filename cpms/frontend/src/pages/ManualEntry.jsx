@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { listCandidates } from '../api/candidates'
 import { createPeriod, listPeriods } from '../api/periods'
-import { submitManualScore } from '../api/scores'
+import { getScore, submitManualScore } from '../api/scores'
 import { useCohorts } from '../context/CohortContext'
 import { useStreams } from '../context/StreamContext'
 
@@ -108,6 +108,7 @@ export default function ManualEntry() {
   const [expandedId, setExpandedId] = useState(null)
   const [rowStatus, setRowStatus] = useState({}) // candidateId -> 'saving' | 'saved' | error string
   const [savingAll, setSavingAll] = useState(false)
+  const [notesLoaded, setNotesLoaded] = useState({}) // candidateId -> true once saved notes were fetched
 
   const periodLabels = useMemo(() => labelPeriods(periods), [periods])
 
@@ -137,6 +138,7 @@ export default function ManualEntry() {
         res.data.forEach((c) => { next[c.id] = rowFromCandidate(c) })
         setRows(next)
         setRowStatus({})
+        setNotesLoaded({})
       })
       .finally(() => setLoading(false))
   }
@@ -159,6 +161,38 @@ export default function ManualEntry() {
     setRowStatus((prev) => ({ ...prev, [candidateId]: undefined }))
   }
 
+  // Opening a candidate's Notes panel fetches whatever was already saved for
+  // this period (dev group, feedback, action plan, Individual/Group) so it can
+  // be edited, instead of showing blank boxes over the top of saved notes.
+  async function toggleNotes(candidateId) {
+    if (expandedId === candidateId) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(candidateId)
+    if (notesLoaded[candidateId]) return
+    try {
+      const res = await getScore(candidateId, periodId)
+      const s = res.data
+      if (s) {
+        setRows((prev) => ({
+          ...prev,
+          [candidateId]: {
+            ...prev[candidateId],
+            dev_group_name: s.dev_group_name || '',
+            weekly_feedback: s.weekly_feedback || '',
+            action_plan: s.action_plan || '',
+            commitment_type: s.commitment_type || 'INDIVIDUAL',
+          },
+        }))
+      }
+    } catch {
+      // Nothing saved yet for this period - the empty boxes are correct.
+    } finally {
+      setNotesLoaded((prev) => ({ ...prev, [candidateId]: true }))
+    }
+  }
+
   async function saveRow(candidateId) {
     const row = rows[candidateId]
     if (!isRowComplete(row)) return
@@ -173,7 +207,7 @@ export default function ManualEntry() {
         creativity: Number(row.creativity),
         project_delivery: Number(row.project_delivery),
         tech_skills: Number(row.tech_skills),
-        dev_group_name: row.dev_group_name || null,
+        dev_group_name: row.commitment_type === 'GROUP' ? row.dev_group_name || null : null,
         weekly_feedback: row.weekly_feedback || null,
         action_plan: row.action_plan || null,
         commitment_type: row.commitment_type,
@@ -190,7 +224,11 @@ export default function ManualEntry() {
   async function saveAll() {
     setSavingAll(true)
     const ready = candidates.map((c) => c.id).filter((id) => isRowComplete(rows[id]))
-    await Promise.all(ready.map((id) => saveRow(id)))
+    // One at a time: every save recalculates and re-ranks the whole period, so
+    // firing them all at once can make them collide (this caused the stray 500s).
+    for (const id of ready) {
+      await saveRow(id)
+    }
     setSavingAll(false)
   }
 
@@ -359,7 +397,7 @@ export default function ManualEntry() {
                           </button>
                         </td>
                         <td>
-                          <button type="button" className="btn-link" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
+                          <button type="button" className="btn-link" onClick={() => toggleNotes(c.id)}>
                             {expandedId === c.id ? 'Hide notes' : 'Notes'}
                           </button>
                         </td>
@@ -380,11 +418,13 @@ export default function ManualEntry() {
                           <td colSpan={SCORE_FIELDS.length + 3}>
                             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                               <div className="form-grid">
-                                <label className="field">
-                                  Dev group name
-                                  <input className="input" value={row.dev_group_name}
-                                    onChange={(e) => updateField(c.id, 'dev_group_name', e.target.value)} />
-                                </label>
+                                {row.commitment_type === 'GROUP' && (
+                                  <label className="field">
+                                    Dev group name
+                                    <input className="input" value={row.dev_group_name}
+                                      onChange={(e) => updateField(c.id, 'dev_group_name', e.target.value)} />
+                                  </label>
+                                )}
                                 <label className="field">
                                   Commitment for the week ahead
                                   <div className="radio-group" style={{ paddingTop: '0.5rem' }}>
@@ -409,6 +449,20 @@ export default function ManualEntry() {
                                 <textarea className="input" value={row.action_plan}
                                   onChange={(e) => updateField(c.id, 'action_plan', e.target.value)} />
                               </label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <button type="button" className="btn btn-primary" disabled={!complete || status === 'saving'}
+                                  onClick={() => saveRow(c.id)}>
+                                  {status === 'saving' ? 'Saving…' : 'Save scores & notes'}
+                                </button>
+                                {!complete && (
+                                  <span className="muted" style={{ fontSize: '0.8rem' }}>
+                                    Fill in all six scores first - notes are saved together with the scores.
+                                  </span>
+                                )}
+                                {status === 'saved' && (
+                                  <span className="alert alert-success" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}>Saved</span>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -442,12 +496,12 @@ export default function ManualEntry() {
                   return (
                     <tr key={c.id}>
                       <td>{c.first_name} {c.last_name}</td>
-                      <td>{c.cohort_name ?? '—'}</td>
-                      <td>{c.stream_name ?? '—'}</td>
-                      {SCORE_FIELDS.map(([f]) => <td key={f} style={{ textAlign: 'center' }}>{row[f] || '—'}</td>)}
-                      <td className={bandClasses(entry?.tdcPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.tdcPct) : '—'}</td>
-                      <td className={bandClasses(entry?.techPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.techPct) : '—'}</td>
-                      <td className={bandClasses(entry?.overallPct)} style={{ textAlign: 'center', fontWeight: 700 }}>{entry ? fmt(entry.overallPct) : '—'}</td>
+                      <td>{c.cohort_name ?? '-'}</td>
+                      <td>{c.stream_name ?? '-'}</td>
+                      {SCORE_FIELDS.map(([f]) => <td key={f} style={{ textAlign: 'center' }}>{row[f] || '-'}</td>)}
+                      <td className={bandClasses(entry?.tdcPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.tdcPct) : '-'}</td>
+                      <td className={bandClasses(entry?.techPct)} style={{ textAlign: 'center' }}>{entry ? fmt(entry.techPct) : '-'}</td>
+                      <td className={bandClasses(entry?.overallPct)} style={{ textAlign: 'center', fontWeight: 700 }}>{entry ? fmt(entry.overallPct) : '-'}</td>
                     </tr>
                   )
                 })}
