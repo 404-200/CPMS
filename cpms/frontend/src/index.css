@@ -122,10 +122,11 @@ input[type='radio'] {
   overflow-y: auto;
 }
 
-.page-narrow { 
-  max-width: 900px; 
-  margin-left: auto; 
-  margin-right: auto; }
+.page-narrow {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 .page-header {
   display: flex;
@@ -239,22 +240,12 @@ input[type='radio'] {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-<<<<<<< HEAD
-  /* Stays in view while a long table scrolls */
-  align-self: flex-start;
-  position: sticky;
-  top: var(--topbar-height);
-  height: calc(100vh - var(--topbar-height));
+  /* The shell is exactly one screen tall, so the sidebar simply fills the
+     space under the topbar and scrolls on its own if it ever needs to. */
+  align-self: stretch;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-=======
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
-  overflow-y: auto;
->>>>>>> f5449e97cac543510c8a535806823a47b7d7e0bc
 }
 
 .sidebar-section-label {
@@ -1029,6 +1020,13 @@ table.data-table {
 @media print {
   body {
     background: #fff;
+  }
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+  .app-main {
+    overflow: visible;
   }
   .topbar,
   .sidebar,
