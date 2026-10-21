@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     seed_admin_email: str | None = None
     seed_admin_password: str | None = None
 
+    # --- Password reset email ---
+    # If smtp_host is left unset, reset links are printed to the backend
+    # console instead of emailed — handy for local dev without real SMTP
+    # credentials. Set all smtp_* vars in production.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str = "no-reply@candidateperformance.app"
+    smtp_use_tls: bool = True
+    frontend_base_url: str = "http://localhost:5173"
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @property

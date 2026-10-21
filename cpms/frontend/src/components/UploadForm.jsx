@@ -12,7 +12,7 @@ export default function UploadForm({ periods, onSubmit, submitting, result }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 460 }}>
+      <form onSubmit={handleSubmit} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <label className="field">
         Biweekly period
         <select className="input" value={periodId} onChange={(e) => setPeriodId(e.target.value)} required>

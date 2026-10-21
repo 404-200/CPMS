@@ -105,7 +105,8 @@ input[type='radio'] {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-body {
@@ -118,7 +119,13 @@ input[type='radio'] {
   flex: 1;
   padding: 2rem 2.5rem 3rem;
   min-width: 0;
+  overflow-y: auto;
 }
+
+.page-narrow { 
+  max-width: 900px; 
+  margin-left: auto; 
+  margin-right: auto; }
 
 .page-header {
   display: flex;
@@ -232,6 +239,7 @@ input[type='radio'] {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+<<<<<<< HEAD
   /* Stays in view while a long table scrolls */
   align-self: flex-start;
   position: sticky;
@@ -240,6 +248,13 @@ input[type='radio'] {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+=======
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+>>>>>>> f5449e97cac543510c8a535806823a47b7d7e0bc
 }
 
 .sidebar-section-label {
